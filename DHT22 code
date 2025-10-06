@@ -1,0 +1,129 @@
+#include <LiquidCrystal.h>
+#include "DHT.h"
+
+int TempAc = 30;
+int HumAc = 50;
+//led ledBlu
+int Linea = 0;
+int ReleTem = 13;
+int ReleHum = 10;
+int ButMas = 6;
+int ButMenos = 7;
+int ButCam = 9; 
+int estadoAnteriorMas = HIGH;
+int estadoAnteriorMenos = HIGH;
+int estadoAnteriorCam = HIGH;
+bool Elecion = true;
+//true = temp, false = hum
+
+#define DHTPIN 8
+#define DHTTYPE DHT22
+
+DHT dht(DHTPIN, DHTTYPE);
+
+// Pines Paque no me olvide LCD: RS, E, D4, D5, D6, D7
+LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+
+void setup() {
+  dht.begin();
+  lcd.begin(16, 2); 
+  lcd.print("Detectando...");
+  pinMode(ButMas, INPUT_PULLUP);
+  pinMode(ButMenos, INPUT_PULLUP); 
+  pinMode(ButCam, INPUT_PULLUP);
+  pinMode(ReleTem, OUTPUT);
+  pinMode(ReleHum, OUTPUT);
+  delay(2000);
+}
+unsigned long ultimaLectura = 0;
+const long intervalo = 3000; //10 segundos
+
+void loop() {
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+  int estadoReleTemp = digitalRead(ReleTem);
+  int estadoReleHum = digitalRead(ReleHum);
+  int estadoActualMas = digitalRead(ButMas);
+  int estadoActualMenos = digitalRead(ButMenos);
+  int estadoActualCam = digitalRead(ButCam);
+
+  if (estadoAnteriorCam == HIGH && estadoActualCam == LOW) {
+    if (Elecion == false) {
+      Elecion = true;
+      Linea = 0;
+      lcd.setCursor(14, Linea);
+      lcd.print("<-");
+    } else {
+      Elecion = false;
+      Linea = 1;
+      lcd.setCursor(14, Linea);
+      lcd.print("<-");
+    }
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(String(t) + "C - " + String(TempAc) + "Ca");
+    lcd.setCursor(0, 1);
+    lcd.print(String(h) + "% - " + String(HumAc) + "%a");
+    lcd.setCursor(14, Linea);
+    lcd.print("<-");
+  }
+  if (estadoAnteriorMas == HIGH && estadoActualMas == LOW) {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(String(t) + "C - " + String(TempAc) + "Ca");
+    lcd.setCursor(0, 1);
+    lcd.print(String(h) + "% - " + String(HumAc) + "%a");
+    lcd.setCursor(14, Linea);
+    lcd.print("<-");
+
+    if (Elecion == true) {
+      TempAc += 1;
+    } else {
+      HumAc += 1;
+    }
+  }
+  if (estadoAnteriorMenos == HIGH && estadoActualMenos == LOW) {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(String(t) + "C - " + String(TempAc) + "Ca");
+    lcd.setCursor(0, 1);
+    lcd.print(String(h) + "% - " + String(HumAc) + "%a");
+    lcd.setCursor(14, Linea);
+    lcd.print("<-");
+
+    if (Elecion == true) {
+      TempAc -= 1;
+    } else {
+      HumAc -= 1;
+    }
+  }
+  estadoAnteriorMas = estadoActualMas;
+  estadoAnteriorMenos = estadoActualMenos;
+  estadoAnteriorCam = estadoActualCam;
+
+  unsigned long ahora = millis();
+  if (ahora - ultimaLectura >= intervalo) {
+    ultimaLectura = ahora;
+
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(String(t) + "C - " + String(TempAc) + "Ca");
+    lcd.setCursor(0, 1);
+    lcd.print(String(h) + "% - " + String(HumAc) + "%a");
+    lcd.setCursor(14, Linea);
+    lcd.print("<-");
+
+    // mayor > menor y menor < mayor
+    if (t <= TempAc) {
+      digitalWrite(ReleTem, HIGH);
+    } else {
+      digitalWrite(ReleTem, LOW);
+    }
+    if (h <= HumAc) {
+      digitalWrite(ReleHum, HIGH);
+    } else {
+      digitalWrite(ReleHum, LOW);
+    }
+  }
+  delay(50);
+}
