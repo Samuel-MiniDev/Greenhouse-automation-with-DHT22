@@ -1,129 +1,119 @@
-#include <LiquidCrystal.h>
-#include "DHT.h"
+#include <LiquidCrystal_I2C.h>   // Librería para controlar el display LCD con interfaz I2C
+#include "DHT.h"                 // Librería para leer datos del sensor de temperatura y humedad DHT
 
-int TempAc = 30;
-int HumAc = 50;
-//led ledBlu
-int Linea = 0;
-int ReleTem = 13;
-int ReleHum = 10;
-int ButMas = 6;
-int ButMenos = 7;
-int ButCam = 9; 
-int estadoAnteriorMas = HIGH;
-int estadoAnteriorMenos = HIGH;
-int estadoAnteriorCam = HIGH;
-bool Elecion = true;
-//true = temp, false = hum
+// --- Configuración del sensor DHT ---
+#define DHTPIN 2                 // Pin digital donde está conectado el sensor DHT11
+#define DHTTYPE DHT11            // Tipo de sensor (DHT11)
+DHT dht(DHTPIN, DHTTYPE);        // Se crea un objeto "dht" con la configuración anterior
 
-#define DHTPIN 8
-#define DHTTYPE DHT22
+// --- Configuración del display LCD ---
+LiquidCrystal_I2C lcd(0x27, 16, 2);  // Dirección I2C 0x27, LCD de 16 columnas y 2 filas
 
-DHT dht(DHTPIN, DHTTYPE);
+// --- Pines de los relés ---
+int ReleTem = 13;                // Relé que controla temperatura (por ejemplo, calefactor)
+int ReleHum = 10;                // Relé que controla humedad (por ejemplo, humidificador)
 
-// Pines Paque no me olvide LCD: RS, E, D4, D5, D6, D7
-LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+// --- Parámetros de referencia ---
+int TempAc = 15;                 // Temperatura de activación: cuando el valor medido >= TempAc → activa el relé
+int HumAc = 80;                  // Humedad de activación: cuando el valor medido <= HumAc → activa el relé
 
+// --- Pines de pulsadores ---
+int pulmas = 7;                  // Pulsador para aumentar valor de referencia
+int pulmenos = 6;                // Pulsador para disminuir valor de referencia
+int pulcam = 5;                  // Pulsador para cambiar entre opciones o líneas
+int lastPulmas = HIGH;           // Guarda el último estado del pulsador +
+int lastPulmenos = HIGH;         // Guarda el último estado del pulsador -
+int lastPulcam = HIGH;           // Guarda el último estado del pulsador CAMBIO
+
+// --- Variable de control de línea en LCD ---
+int Linea = 0;                   // Indica en qué línea del LCD se muestra el cursor o flecha
+
+// --- Configuración inicial ---
 void setup() {
-  dht.begin();
-  lcd.begin(16, 2); 
-  lcd.print("Detectando...");
-  pinMode(ButMas, INPUT_PULLUP);
-  pinMode(ButMenos, INPUT_PULLUP); 
-  pinMode(ButCam, INPUT_PULLUP);
+  Serial.begin(9600);            // Inicia la comunicación serial para depuración
+  dht.begin();                   // Inicializa el sensor DHT
+
+  // Configura los pulsadores con resistencias internas pull-up
+  pinMode(pulmas, INPUT_PULLUP);
+  pinMode(pulmenos, INPUT_PULLUP);
+  pinMode(pulcam, INPUT_PULLUP);
+
+  // Configura los pines de salida para los relés
   pinMode(ReleTem, OUTPUT);
   pinMode(ReleHum, OUTPUT);
-  delay(2000);
+
+  // Los relés se inician en estado apagado (HIGH = desactivado si son relés activos en LOW)
+  digitalWrite(ReleTem, HIGH);
+  digitalWrite(ReleHum, HIGH);
+
+  // Inicializa el display LCD
+  lcd.init();
+  lcd.backlight();               // Enciende la luz de fondo
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Iniciando...");     // Mensaje inicial
+  delay(3000);                   // Espera 3 segundos
+  lcd.clear();                   // Limpia la pantalla
 }
-unsigned long ultimaLectura = 0;
-const long intervalo = 3000; //10 segundos
 
+// --- Variables para control de tiempo entre lecturas ---
+unsigned long ultimaLectura = 0; // Guarda el tiempo de la última actualización de pantalla
+const long intervalo = 3000;     // Intervalo de actualización cada 3 segundos
+
+// --- Bucle principal ---
 void loop() {
-  float h = dht.readHumidity();
-  float t = dht.readTemperature();
-  int estadoReleTemp = digitalRead(ReleTem);
-  int estadoReleHum = digitalRead(ReleHum);
-  int estadoActualMas = digitalRead(ButMas);
-  int estadoActualMenos = digitalRead(ButMenos);
-  int estadoActualCam = digitalRead(ButCam);
+  // Lee los valores actuales del sensor
+  int h = dht.readHumidity();    // Humedad actual (%)
+  int t = dht.readTemperature(); // Temperatura actual (°C)
 
-  if (estadoAnteriorCam == HIGH && estadoActualCam == LOW) {
-    if (Elecion == false) {
-      Elecion = true;
-      Linea = 0;
-      lcd.setCursor(14, Linea);
-      lcd.print("<-");
-    } else {
-      Elecion = false;
-      Linea = 1;
-      lcd.setCursor(14, Linea);
-      lcd.print("<-");
-    }
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print(String(t) + "C - " + String(TempAc) + "Ca");
-    lcd.setCursor(0, 1);
-    lcd.print(String(h) + "% - " + String(HumAc) + "%a");
-    lcd.setCursor(14, Linea);
-    lcd.print("<-");
+  // Lee el estado actual de los botones
+  int estadoMas = digitalRead(pulmas);
+  int estadoMenos = digitalRead(pulmenos);
+  int estadoCam = digitalRead(pulcam);
+
+  // --- Control de los relés según los valores medidos ---
+  if (t >= TempAc) digitalWrite(ReleTem, LOW);   // Si la temperatura supera el límite → activa relé de temperatura
+  else digitalWrite(ReleTem, HIGH);              // Si está por debajo → apaga relé
+
+  if (h <= HumAc) digitalWrite(ReleHum, LOW);    // Si la humedad baja del límite → activa relé de humedad
+  else digitalWrite(ReleHum, HIGH);              // Si es mayor → apaga relé
+
+  // --- Lectura de los botones con detección de cambio de estado ---
+  if (estadoMas == LOW && lastPulmas == HIGH) {  // Si se presiona el botón "+"
+    HumAc++;                                     // Aumenta el valor de humedad objetivo
+    Serial.print("Click +  → Nuevo HumAc: ");
+    Serial.println(HumAc);
   }
-  if (estadoAnteriorMas == HIGH && estadoActualMas == LOW) {
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print(String(t) + "C - " + String(TempAc) + "Ca");
-    lcd.setCursor(0, 1);
-    lcd.print(String(h) + "% - " + String(HumAc) + "%a");
-    lcd.setCursor(14, Linea);
-    lcd.print("<-");
 
-    if (Elecion == true) {
-      TempAc += 1;
-    } else {
-      HumAc += 1;
-    }
+  if (estadoMenos == LOW && lastPulmenos == HIGH) {  // Si se presiona el botón "-"
+    HumAc--;                                         // Disminuye el valor de humedad objetivo
+    Serial.print("Click -  → Nuevo HumAc: ");
+    Serial.println(HumAc);
   }
-  if (estadoAnteriorMenos == HIGH && estadoActualMenos == LOW) {
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print(String(t) + "C - " + String(TempAc) + "Ca");
-    lcd.setCursor(0, 1);
-    lcd.print(String(h) + "% - " + String(HumAc) + "%a");
-    lcd.setCursor(14, Linea);
-    lcd.print("<-");
 
-    if (Elecion == true) {
-      TempAc -= 1;
-    } else {
-      HumAc -= 1;
-    }
+  if (estadoCam == LOW && lastPulcam == HIGH) {  // Si se presiona el botón de cambio
+    Serial.println("Click CAMBIO detectado");
+    // (A futuro podría alternar entre modificar TempAc o HumAc, o mover la flecha en LCD)
   }
-  estadoAnteriorMas = estadoActualMas;
-  estadoAnteriorMenos = estadoActualMenos;
-  estadoAnteriorCam = estadoActualCam;
 
-  unsigned long ahora = millis();
-  if (ahora - ultimaLectura >= intervalo) {
-    ultimaLectura = ahora;
+  // Guarda los estados actuales de los botones para la siguiente lectura
+  lastPulmas = estadoMas;
+  lastPulmenos = estadoMenos;
+  lastPulcam = estadoCam;
 
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print(String(t) + "C - " + String(TempAc) + "Ca");
-    lcd.setCursor(0, 1);
-    lcd.print(String(h) + "% - " + String(HumAc) + "%a");
+  // --- Actualiza la pantalla LCD cada cierto intervalo ---
+  unsigned long ahora = millis();                 // Tiempo actual
+  if (ahora - ultimaLectura >= intervalo) {       // Si pasaron más de 3 segundos
+    ultimaLectura = ahora;                        // Actualiza el marcador de tiempo
+
+    lcd.clear();                                  // Limpia pantalla
+    lcd.setCursor(0,0);
+    lcd.print("Hum:" + String(h) + " - a%:" + String(HumAc));  // Muestra humedad actual y objetivo
+    lcd.setCursor(0,1);
+    lcd.print("Tem:" + String(t) + " - aC:" + String(TempAc)); // Muestra temperatura actual y objetivo
     lcd.setCursor(14, Linea);
-    lcd.print("<-");
-
-    // mayor > menor y menor < mayor
-    if (t <= TempAc) {
-      digitalWrite(ReleTem, HIGH);
-    } else {
-      digitalWrite(ReleTem, LOW);
-    }
-    if (h <= HumAc) {
-      digitalWrite(ReleHum, HIGH);
-    } else {
-      digitalWrite(ReleHum, LOW);
-    }
+    lcd.print("<-");                              // Flecha indicadora de línea
   }
-  delay(50);
+
+  delay(10);  // Pequeña pausa para estabilidad del bucle
 }
